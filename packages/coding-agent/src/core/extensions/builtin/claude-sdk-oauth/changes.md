@@ -3,7 +3,9 @@
 ## 2026-08-01 - Document the Claude Code opt-out
 
 - Documented `disabledBuiltinExtensions: ["claude-sdk-oauth"]` as the supported way to prevent the Claude SDK OAuth builtin from loading.
-- This is configuration-only; it leaves unrelated builtin extensions enabled and does not change the provider's default behavior.
+- Clarified the global and project settings paths, project-over-global precedence, and the restart required after changing the setting.
+- Added a regression test that proves the disabled builtin does not register the provider while unrelated builtins remain loaded.
+- The runtime behavior is unchanged; this only documents and locks the existing opt-out.
 - Merge-conflict risk: low. Expected conflict zone is the top of this extension change log.
 
 ## 2026-07-31 - Native system prompt, session reuse, env overrides, and transcript hardening
