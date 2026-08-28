@@ -54,7 +54,6 @@
 
 - LOW: the `resolveChainKey` tail and the `canonicalizeFallbackChains` return block in `chains.ts`.
 - LOW: the `chainKey` resolution expression in `controller.ts`.
-
 ## 2026-08-27 - Default retry policy phase-2 close-out (docs)
 
 ### What changed

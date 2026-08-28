@@ -312,6 +312,7 @@ export async function runHostSupervisor(launch: SupervisorLaunch): Promise<void>
 		if (type === "agent_start") busySessions.set(sessionId, (busySessions.get(sessionId) ?? 0) + 1);
 		else if (type === "agent_settled")
 			busySessions.set(sessionId, Math.max(0, (busySessions.get(sessionId) ?? 1) - 1));
+		else if (type === "session_closed") busySessions.delete(sessionId);
 	}
 
 	async function shutdown(reason: string, exitCode: number): Promise<never> {

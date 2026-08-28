@@ -189,6 +189,13 @@ export class SessionCommandRouter {
 				continue;
 			}
 			try {
+				if (entry.state === "closing") {
+					this.writer.closeSession(sessionId, {
+						type: "response",
+						command: "close_session",
+						success: true,
+					});
+				}
 				await this.bindings.get(sessionId)?.dispose();
 			} finally {
 				this.bindings.delete(sessionId);
