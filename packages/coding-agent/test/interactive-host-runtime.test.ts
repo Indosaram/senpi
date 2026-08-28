@@ -1,5 +1,5 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -292,6 +292,59 @@ describe("interactive host runtime", () => {
 			// host's level there too, not only through the direct thinkingLevel getter.
 			expect(runtime.session.thinkingLevel).toBe(newLevel);
 			expect(runtime.session.state.thinkingLevel).toBe(newLevel);
+		} finally {
+			await runtime.dispose();
+			await fake.close();
+		}
+	});
+
+	it("synchronizes sessionManager and messages when compaction completes on the host", async () => {
+		const qa = scratch("compaction-sync");
+		mkdirSync(join(qa.agentDir), { recursive: true });
+		writeFileSync(join(qa.agentDir, "settings.json"), JSON.stringify({ compaction: { keepRecentTokens: 10 } }));
+		const fake = await startFakeModelServer();
+		writeRpcModelsJson(qa.agentDir, fake.origin);
+		const host = spawnHost(qa);
+		await waitForHost(host, qa.socket);
+		const localSessionManager = SessionManager.create(qa.cwd, qa.sessionDir);
+		const local = await createAgentSessionRuntimeFixture({
+			cwd: qa.cwd,
+			agentDir: qa.agentDir,
+			sessionManager: localSessionManager,
+			settingsManager: SettingsManager.create(qa.cwd, qa.agentDir),
+		});
+		const runtime = await createInteractiveHostRuntime(local, {
+			socket: qa.socket,
+			ensureHost: async () => undefined,
+			onWarning: vi.fn(),
+		});
+		try {
+			for (const text of ["hello turn one", "hello turn two", "hello turn three", "hello turn four"]) {
+				const turnSettled = new Promise<void>((resolve) => {
+					const unsubscribe = runtime.session.subscribe((event) => {
+						if (event.type === "agent_settled") {
+							unsubscribe();
+							resolve();
+						}
+					});
+				});
+				await runtime.session.prompt(text);
+				await turnSettled;
+				await new Promise((r) => setTimeout(r, 50));
+			}
+
+			const compactionEnded = new Promise<void>((resolve) => {
+				const unsubscribe = runtime.session.subscribe((event) => {
+					if (event.type !== "compaction_end") return;
+					unsubscribe();
+					resolve();
+				});
+			});
+			await runtime.session.compact();
+			await compactionEnded;
+
+			const entries = localSessionManager.buildContextEntries();
+			expect(entries[0]?.type).toBe("compaction");
 		} finally {
 			await runtime.dispose();
 			await fake.close();

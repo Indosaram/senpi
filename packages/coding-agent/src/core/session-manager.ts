@@ -833,6 +833,14 @@ export class SessionManager {
 		}
 	}
 
+	/**
+	 * Reload session entries from the session file on disk.
+	 */
+	reloadFromDisk(): void {
+		if (!this.sessionFile || !existsSync(this.sessionFile)) return;
+		this._setSessionFile(this.sessionFile);
+	}
+
 	/** Switch to a different session file (used for resume and branching) */
 	setSessionFile(sessionFile: string): void {
 		this._setSessionFile(sessionFile);

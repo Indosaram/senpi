@@ -1,5 +1,24 @@
 # changes
 
+## 2026-08-28 - SessionManager reloadFromDisk for external and shared-host mutations
+
+### What changed
+
+- `packages/coding-agent/src/core/session-manager.ts`: added `reloadFromDisk()` to reload `fileEntries`, update internal maps/caches, and rebuild the session index from `this.sessionFile` if it exists on disk.
+- Enables in-process mirrors (such as interactive host proxy) to synchronize with external changes like host-committed compactions.
+
+### Why
+
+- When running against a shared host or external worker, the underlying session JSONL file is updated on disk by the host. Client-side `SessionManager` instances in memory remained stale unless explicitly reloaded from the file.
+
+### Why an extension could not handle it
+
+- `SessionManager` index management, entry caching, and file loading are private core persistence mechanics.
+
+### Expected merge conflict zones
+
+- LOW: `packages/coding-agent/src/core/session-manager.ts` public method definitions.
+
 ## 2026-08-28 - Wildcard fallback lane for chainless models
 
 ### What changed

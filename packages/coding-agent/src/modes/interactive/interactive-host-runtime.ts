@@ -180,6 +180,14 @@ function createRemoteSessionProxy(
 			if (previous?.role === wireEvent.message.role)
 				messages[messages.length - 1] = structuredClone(wireEvent.message);
 		}
+		if (wireEvent.type === "compaction_end" && wireEvent.accepted && !wireEvent.aborted) {
+			try {
+				local.sessionManager?.reloadFromDisk?.();
+				local.agent.state.messages = local.sessionManager.buildSessionContext().messages;
+			} catch {
+				// Non-fatal if session file is transiently locked or unavailable
+			}
+		}
 		const event = hydrateMessageUpdate(wireEvent, streamingAssistant);
 		for (const listener of listeners) listener(event);
 	});

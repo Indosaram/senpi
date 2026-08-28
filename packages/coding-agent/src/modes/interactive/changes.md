@@ -1,5 +1,25 @@
 # changes
 
+## Shared-host compaction context synchronization and resilient transcript rebuild (2026-08-28)
+
+### What changed
+
+- `interactive-host-runtime.ts`: on `compaction_end` wire events from the host, the remote session proxy calls `reloadFromDisk()` on `local.sessionManager` and updates `local.agent.state.messages` to the refreshed context messages.
+- `interactive-mode.ts`: `compaction_end` handler no longer throws a fatal error when `entries[0]?.type !== "compaction"`; instead, it attempts `sessionManager.reloadFromDisk()` and gracefully renders the remaining context entries with the compaction summary card and usage billing notice. `rebuildChatFromMessages()` also attempts `reloadFromDisk()` before querying `buildContextEntries()`.
+- `session-manager.ts`: added `reloadFromDisk()` to reload `fileEntries` and rebuild the index from the session file on disk when modified externally.
+
+### Why
+
+- When running with the shared interactive host, a successful compaction committed by the host was not immediately present in the client-side `sessionManager` memory, causing `entries[0]?.type !== "compaction"` to throw `Completed compaction is missing from the session context` and crash the TUI (issue #1173). Full transcript rebuilds also suffered from stale local session state (issue #1172).
+
+### Why an extension could not handle it
+
+- `InteractiveMode`'s compaction handler and `interactive-host-runtime.ts` proxy event pipeline are internal to the interactive runtime and cannot be overridden by extensions.
+
+### Expected merge conflict zones
+
+- LOW: `interactive-mode.ts` `compaction_end` case and `interactive-host-runtime.ts` wire event handling.
+
 ## Shared-host sessions await async session reads and render thinking level from the event (2026-08-28)
 
 ### What changed

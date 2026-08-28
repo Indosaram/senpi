@@ -4603,9 +4603,14 @@ export class InteractiveMode {
 					// Keep the structural fallback for focused handler consumers while using
 					// the session-owned manager on the real TUI path.
 					const sessionManager = this.session.sessionManager ?? this.sessionManager;
-					const entries = sessionManager.buildContextEntries();
+					let entries = sessionManager?.buildContextEntries?.() ?? [];
 					if (entries[0]?.type !== "compaction") {
-						throw new Error("Completed compaction is missing from the session context");
+						try {
+							sessionManager?.reloadFromDisk?.();
+							entries = sessionManager?.buildContextEntries?.() ?? entries;
+						} catch {
+							// Retain existing entries on reload error
+						}
 					}
 					this.chatContainer.clear();
 					const summaryMessage = createCompactionSummaryMessage(
@@ -4616,7 +4621,11 @@ export class InteractiveMode {
 					);
 					if (typeof this.renderSessionEntries === "function") {
 						// The latest compaction is prepended for model context; append it below at its chronological position.
-						this.renderSessionEntries(entries.slice(1));
+						const entriesToRender =
+							entries[0]?.type === "compaction"
+								? entries.slice(1)
+								: entries.filter((e) => e.type !== "compaction");
+						this.renderSessionEntries(entriesToRender);
 						this.addMessageToChat(summaryMessage);
 						if (event.result.usage) {
 							this.addCompactionCostNotice({
@@ -5430,6 +5439,11 @@ export class InteractiveMode {
 	}
 
 	private rebuildChatFromMessages(): void {
+		try {
+			this.sessionManager?.reloadFromDisk?.();
+		} catch {
+			// Keep in-memory entries if file reload is unavailable
+		}
 		this.chatContainer.clear();
 		this.renderSessionEntries(this.sessionManager.buildContextEntries());
 	}
