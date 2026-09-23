@@ -10,6 +10,8 @@
 
 ### Fixed
 
+- Cursor suffix families the 2026-08-18 alias snapshot does not list (`grok-4.7`, `claude-opus-5-5`, `claude-fable-5-1` and its thinking variants, `gemini-3.8-flash`, `muse-spark-1.3`) group into one selectable identity with reasoning levels, derived from the live `GetUsableModels` batch, instead of arriving as flat singletons with reasoning off. The identity offers exactly the levels the server listed (an unlisted level is unsupported and clamps to a listed one), and an explicit level resolves to the exact server-listed variant id instead of silently downgrading to the representative. A derived family never takes an id that is already a static identity, a static alias key, or a raw catalog id; those members stay flat. Stored flat variants regroup on restore, and a stored group, static or derived, keeps its levels and representative whichever side of its flat aliases it was stored on. The context window is unchanged: a family without capability data or an observed server limit still uses the 200k fallback. ([#2038](https://github.com/code-yeongyu/senpi/issues/2038))
+
 ### Removed
 
 ## [2026.9.23-4] - 2026-09-23
@@ -25,7 +27,6 @@
 ### Fixed
 
 - The `pi-messages` provider projects tool-result text fields onto the wire instead of forwarding display audience metadata. ([#2041](https://github.com/code-yeongyu/senpi/issues/2041))
-- Cursor suffix families the 2026-08-18 alias snapshot does not list (`grok-4.7`, `claude-opus-5-5`, `claude-fable-5-1` and its thinking variants, `gemini-3.8-flash`, `muse-spark-1.3`) group into one selectable identity with reasoning levels, derived from the live `GetUsableModels` batch, instead of arriving as flat singletons with reasoning off. The identity offers exactly the levels the server listed (an unlisted level is unsupported and clamps to a listed one), and an explicit level resolves to the exact server-listed variant id instead of silently downgrading to the representative. A derived family never takes an id that is already a static identity, a static alias key, or a raw catalog id; those members stay flat. Stored flat variants regroup on restore, and a stored group, static or derived, keeps its levels and representative whichever side of its flat aliases it was stored on. The context window is unchanged: a family without capability data or an observed server limit still uses the 200k fallback. ([#2038](https://github.com/code-yeongyu/senpi/issues/2038))
 
 ### Removed
 
