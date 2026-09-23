@@ -1,19 +1,3 @@
-## 2026-09-23 - `resolvedToolName` on toolcall_start/toolcall_end wire records (senpi#2068)
-
-### What changed
-
-- `packages/coding-agent/src/modes/json-event.ts`: `toJsonEvent` copies the session event's `resolvedToolName` into the delta-only `message_update` record (stdout RPC and `--mode json`). Socket-host records already carry it: `demoteToDeltaOnly` only rewrites `*_delta` records and spreads the rest.
-- `docs/rpc.md`, `docs/json.md`: document the field.
-- `test/suite/regressions/issue-2068-rpc-resolved-tool-name.test.ts` (new); `7925-toolcall-start-metadata.test.ts` pins the field on the exact `toolcall_start` wire shape.
-
-### Why
-
-- Clients title a streaming call by the tool it will run from its first frame (code-yeongyu/omo-desktop-app#1079).
-
-### Expected merge conflict zones
-
-- LOW: the returned object in `toJsonEvent`.
-
 ## 2026-09-22 - Daemon status metrics read the process table through the kernel, never a `ps` child (omo-desktop#594)
 
 ### What changed
