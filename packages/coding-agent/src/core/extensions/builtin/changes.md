@@ -1,3 +1,23 @@
+## 2026-09-23 - turn-settled Notification while background work is still active
+
+### What changed
+
+- `packages/coding-agent/src/core/extensions/builtin/hooks/index.ts`: the hooks builtin mirrors live `wake_source_state` counts off `pi.events` and, on `agent_settled` with at least one source still active, dispatches a `Notification` hook input of `kind: "turn-settled"` through the same config, trust, and dispatch path the ask-user notifications already use. The `ask-user` source is ignored.
+- `packages/coding-agent/test/suite/hooks-turn-settled-notification.test.ts`: real-runtime coverage for the dispatch, the no-source silence, and the all-sources-cleared silence.
+
+### Why
+
+Background work that outlives its turn - a monitor, a task, a DAG run - only announces itself when that work later wakes the session, so a user who walks away after a turn ends has no signal that anything is still running. The existing `Notification` kinds all describe an interactive wait, which is not what happened. Gating on a live wake source keeps an ordinary turn ending exactly as quiet as it is today. `ask-user` is skipped because it already notifies through `ask-user-asked` and keeps the question on screen; counting it would double-notify.
+
+### Why an extension could not handle it
+
+The per-source counts are published on the internal event bus by other builtin extensions, and the `Notification` wire input is built inside the builtin that owns hook config, trust, and dispatch. An external extension sees neither the counts nor the configured handler list.
+
+### Expected merge conflict zones
+
+- LOW in `packages/coding-agent/src/core/extensions/builtin/hooks/index.ts` around the `agent_settled` handler and `runConfiguredNotification`.
+- LOW in `packages/coding-agent/CHANGELOG.md` under `## [Unreleased]`.
+
 ## 2026-09-22 - Claude Opus 5.5 becomes the recommended Opus
 
 ### What changed

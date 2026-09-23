@@ -6,6 +6,7 @@
 
 ### Added
 
+- A turn that settles while background work is still active fires a `Notification` hook with `kind: "turn-settled"` naming the live wake sources, so a monitor, task, or DAG run that outlives the turn is reported without reusing the ask-user notification kinds. A turn with no live background work stays as quiet as it is today.
 - RPC and `--mode json` `toolcall_start` / `toolcall_end` records carry `resolvedToolName`, the tool the call will run, so a client can title a gateway-namespaced or recased call (`mcp__<id>__Edit` → `edit`) correctly before it executes. ([#2068](https://github.com/code-yeongyu/senpi/issues/2068))
 
 ### Changed

@@ -104,6 +104,7 @@ describe("builtin hooks extension registration and resource plumbing", () => {
 		expect(registeredEvents.has("agent_end")).toBe(true);
 		expect(Array.from(registeredEvents).sort()).toEqual([
 			"agent_end",
+			"agent_settled",
 			"before_agent_start",
 			"input",
 			"session_before_compact",

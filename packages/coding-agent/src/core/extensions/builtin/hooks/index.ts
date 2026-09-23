@@ -7,6 +7,7 @@ import {
 	type AskUserAskedEvent,
 	type AskUserSettledEvent,
 } from "../ask-user/notify.ts";
+import { isWakeSourceStateEvent, WAKE_SOURCE_STATE_EVENT } from "../monitor-state-event.ts";
 import { registerHooksCommand } from "./command.ts";
 import { loadHookConfigSources, loadHookConfigSourcesAsync } from "./config-loader.ts";
 import { dispatchHookEvent, runningHookHandlersStatusLabel } from "./dispatcher.ts";
@@ -44,7 +45,7 @@ import {
 } from "./tool-adapter.ts";
 import { emptyHookTrustState } from "./trust.ts";
 import { FileHookStateStorage } from "./trust-storage.ts";
-import type { HookTrustState } from "./types.ts";
+import type { HookInputWire, HookTrustState } from "./types.ts";
 
 export { parseHookConfig } from "./schema.ts";
 export type {
@@ -123,29 +124,38 @@ export default function hooksExtension(pi: ExtensionAPI): void {
 				},
 				ctx,
 			);
-			const sources = ctx.getLoadedHookSources?.() ?? fallbackHookSources(ctx.cwd);
-			const parsed = await loadHookConfigSourcesAsync(sources);
-			const handlers = parsed.executableHandlers.filter((handler) => handler.event === "Notification");
-			if (handlers.length === 0) return;
-			const storage = new FileHookStateStorage({ agentDir: sources.agentDir, cwd: sources.cwd });
-			const [globalTrust, projectTrust] = await Promise.all([
-				storage.readAsync("global"),
-				ctx.isProjectTrusted() ? storage.readAsync("project") : emptyHookTrustState(),
-			]);
-			const result = await dispatchNotificationHookEvent({
-				cwd: ctx.cwd,
-				handlers,
-				input,
-				...(ctx.signal === undefined ? {} : { signal: ctx.signal }),
-				trustState: mergeTrustStates(globalTrust, projectTrust),
-			});
-			const details = notificationResultDetails(result);
-			recordLifecycleHookResult(pi, "Notification", {
-				...details,
-				diagnostics: [...parsed.diagnostics, ...details.diagnostics],
-			});
+			await runConfiguredNotification(pi, ctx, input);
 		});
 	}
+
+	// Wake sources outlive the turn that started them: background bash sessions, terminal monitors,
+	// subagent tasks, DAG runs, loop holds. A run that settles with any of them live hands the session
+	// off to work the user cannot see in the transcript, which is a different outcome than a turn that
+	// settles with none - so it earns its own Notification kind and a turn with none stays silent.
+	const activeWakeSources = new Map<string, number>();
+	pi.events.on(WAKE_SOURCE_STATE_EVENT, (data) => {
+		if (!isWakeSourceStateEvent(data)) return;
+		// ask-user already reports through its own Notification kinds and keeps the question on screen,
+		// so counting it here would double-notify a pending question instead of reporting hidden work.
+		if (data.source === "ask-user") return;
+		if (data.activeCount > 0) activeWakeSources.set(data.source, data.activeCount);
+		else activeWakeSources.delete(data.source);
+	});
+
+	pi.on("agent_settled", async (_event, ctx) => {
+		if (activeWakeSources.size === 0) return;
+		// Built synchronously: session identity must be captured before the async config load below.
+		const input = buildNotificationHookInput(
+			{
+				kind: "turn-settled",
+				message: `Turn settled while background work is still active: ${summarizeWakeSources(activeWakeSources)}.`,
+				source: "wake-source",
+				title: "Background work still active",
+			},
+			ctx,
+		);
+		await runConfiguredNotification(pi, ctx, input);
+	});
 
 	pi.on("session_start", async (event, ctx) => {
 		const state = refreshState(ctx);
@@ -324,6 +334,39 @@ export default function hooksExtension(pi: ExtensionAPI): void {
 	});
 
 	registerHooksCommand(pi, refreshState);
+}
+
+/** Loads Notification handlers for this session, runs one built input through them, and records the outcome. */
+async function runConfiguredNotification(pi: ExtensionAPI, ctx: ExtensionContext, input: HookInputWire): Promise<void> {
+	const sources = ctx.getLoadedHookSources?.() ?? fallbackHookSources(ctx.cwd);
+	const parsed = await loadHookConfigSourcesAsync(sources);
+	const handlers = parsed.executableHandlers.filter((handler) => handler.event === "Notification");
+	if (handlers.length === 0) return;
+	const storage = new FileHookStateStorage({ agentDir: sources.agentDir, cwd: sources.cwd });
+	const [globalTrust, projectTrust] = await Promise.all([
+		storage.readAsync("global"),
+		ctx.isProjectTrusted() ? storage.readAsync("project") : emptyHookTrustState(),
+	]);
+	const result = await dispatchNotificationHookEvent({
+		cwd: ctx.cwd,
+		handlers,
+		input,
+		...(ctx.signal === undefined ? {} : { signal: ctx.signal }),
+		trustState: mergeTrustStates(globalTrust, projectTrust),
+	});
+	const details = notificationResultDetails(result);
+	recordLifecycleHookResult(pi, "Notification", {
+		...details,
+		diagnostics: [...parsed.diagnostics, ...details.diagnostics],
+	});
+}
+
+/** Deterministic `source (count)` list so the message is stable across otherwise identical turns. */
+function summarizeWakeSources(active: ReadonlyMap<string, number>): string {
+	return [...active.entries()]
+		.sort(([left], [right]) => left.localeCompare(right))
+		.map(([source, count]) => `${source} (${count})`)
+		.join(", ");
 }
 
 function mergeTrustStates(globalState: HookTrustState, projectState: HookTrustState): HookTrustState {
