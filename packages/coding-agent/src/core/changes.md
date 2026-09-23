@@ -1,3 +1,22 @@
+## 2026-09-23 - Streaming tool-call events name the tool a call resolves to (senpi#2068)
+
+### What changed
+
+- `packages/coding-agent/src/core/tool-call-display-name.ts` (new): `SessionMessageUpdateEvent` (`message_update` plus optional `resolvedToolName`) and `withResolvedToolName`, which reads the streamed name of a `toolcall_start` (its `partial` block) or `toolcall_end` (its `toolCall`) and attaches the resolved one. Other `message_update` records pass through untouched.
+- `packages/coding-agent/src/core/agent-session.ts`: `AgentSessionEvent`'s `message_update` member is `SessionMessageUpdateEvent`; the listener emit point annotates through `resolveToolCallName` (senpi#2064), the same rule and callable-name set the agent loop uses. Extension events are unchanged.
+
+### Why
+
+- RPC clients (the desktop app) render a call from the streamed events and only learned the resolved name at `tool_execution_start`, so a `mcp__<id>__Edit` call showed that name until execution began. A client cannot resolve it itself: the rule needs the session's callable names, and a real tool may be named `mcp__server__tool`.
+
+### Why an extension could not handle it
+
+- Listener events are emitted by the session; an extension cannot add a field to the RPC record stream.
+
+### Expected merge conflict zones
+
+- LOW: the `AgentSessionEvent` union head and the `this._emit(...)` line after extension dispatch in `_processAgentEvent`.
+
 ## 2026-09-23 - Expose the session's tool-call name resolution for display (senpi#2064)
 
 ### What changed
