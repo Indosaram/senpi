@@ -6,6 +6,8 @@
 
 ### Added
 
+- RPC and `--mode json` `toolcall_start` / `toolcall_end` records carry `resolvedToolName`, the tool the call will run, so a client can title a gateway-namespaced or recased call (`mcp__<id>__Edit` → `edit`) correctly before it executes. ([#2068](https://github.com/code-yeongyu/senpi/issues/2068))
+
 ### Changed
 
 ### Fixed
