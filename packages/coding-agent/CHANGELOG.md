@@ -10,6 +10,8 @@
 
 ### Fixed
 
+- Truncated `bash` output no longer ends with `[Showing lines … ; earlier output dropped]` in the TUI. The marker still reaches the model unchanged as a model-only text part, and `bash_output` treats its `[N earlier chars dropped]` notice the same way. ([#2063](https://github.com/code-yeongyu/senpi/issues/2063))
+
 ### Removed
 
 ## [2026.9.23-4] - 2026-09-23
