@@ -54,6 +54,27 @@ The read boundary added for senpi#1989 normalized legacy ids in memory but never
 ### Expected merge conflict zones
 
 - Stderr takeover and restoration. Multiple subscribers and both teardown orders must remain safe.
+
+## 2026-09-23 - Legacy Cursor variant references resolve through runtime-derived groups (senpi#2038)
+
+### What changed
+
+- `packages/coding-agent/src/core/model-resolver.ts`: `resolveLegacyCursorReference`, `resolveStoredModelReference`, and `cursorLegacyAliasesForModel` additionally resolve Cursor ids the static alias table does not list through `compat.cursorReasoning.variantIds` - the variant ids the pi-ai runtime derivation observed for the identity. A reverse lookup through those ids yields the thinking level; it is case-insensitive like `findExactModelReferenceMatch` (which resolved these ids before grouping) and forwards the catalog spelling as `legacyVariantId`, because the selection descriptor allowlists exact ids, so `cursor/grok-4.7-xhigh`, a stored `grok-4.7-medium`, and the `cursor/grok-4.7-*` glob projection all resolve onto the derived `grok-4.7` identity with a `{ source: "legacy-variant" }` selection instead of falling through to fuzzy matches or `undefined`. Static-table behavior is untouched: the static alias branch runs first and is unchanged, `-fast` variants never appear in `variantIds` and stay flat, and the direct `getModel` fallback still wins for stored flat ids.
+- The reverse lookup accepts the actual registered API ids for both providers (`cursor`/`cursor-agent` and `cursor-cli-oauth`/`cursor-cli-oauth`). Unique exact models take precedence over derived (but not static) aliases in `resolveLegacyCursorReference`, `parseModelPattern`, and stored restore, including unqualified references to other providers.
+- Tests: `packages/coding-agent/test/suite/regressions/2038-cursor-derived-variants.test.ts` builds the catalog over `packages/ai/test/fixtures/cursor-usable-models-unlisted-20260923.json` and pins legacy variant, explicit level, stored reference, flat fast id, glob projection, both provider/API pairs, and exact-match precedence; `2038-cursor-derived-reference-boundaries.test.ts` pins mixed-case references and the static-alias-key boundary in both lanes.
+
+### Why
+
+- Cursor ships suffix variant ids (grok-4.7-low/-medium/-high/-xhigh) that the frozen 2026-08-18 alias table cannot know. pi-ai now derives those groups at catalog time (senpi#2038), but the resolver consulted only the static table, so a legacy reference either fuzzy-matched a flat `-fast` model (`cursor/grok-4.7:low` landed on `grok-4.7-xhigh-fast` with thinking off) or resolved to `undefined` on restore. The resolver is the only layer that maps a user-typed or stored id onto a scoped model with a thinking selection. The first reverse lookup also excluded the CLI lane's registered API and displaced exact raw models; both defects are fixed without changing static alias precedence.
+
+### Why an extension could not handle it
+
+- `parseModelPattern`, `resolveStoredModelReference`, and the glob projection run inside core model selection before extensions bind; an extension can register providers but cannot change how the resolver maps patterns and stored ids onto models.
+
+### Expected merge conflict zones
+
+- `packages/coding-agent/src/core/model-resolver.ts`: the cursor helper block after `legacySelection` (`derivedCursorVariantIds` / `derivedCursorVariantMatch` / `derivedResolution` / `cursorLegacySelection`), the body of `resolveLegacyCursorReference` (exact-match gate), the derived branch of `resolveStoredModelReference` (direct-model gate), the tail of `cursorLegacyAliasesForModel`, `resolveDerivedCursorVariant`, and the alias-projection line in `resolveModelScopeFromModels`; the `@earendil-works/pi-ai` import list.
+
 ## 2026-09-23 - Namespaced calls to deferred tools activate the unique match (senpi#2025)
 
 ### What changed
