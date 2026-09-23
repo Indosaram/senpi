@@ -6059,7 +6059,13 @@ export class InteractiveMode {
 		this.assistantTextSegments.clear();
 	}
 
-	private createToolExecutionComponent(toolName: string, toolCallId: string, args: unknown): ToolExecutionComponent {
+	private createToolExecutionComponent(
+		requestedName: string,
+		toolCallId: string,
+		args: unknown,
+	): ToolExecutionComponent {
+		// A call the agent resolves to another tool (gateway namespace, recasing) renders as that tool from its first frame.
+		const toolName = this.session.resolveToolCallName(requestedName);
 		if (this.chrome) {
 			return new ToolExecutionComponent(
 				toolName,

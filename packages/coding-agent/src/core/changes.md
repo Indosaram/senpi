@@ -1,3 +1,21 @@
+## 2026-09-23 - Expose the session's tool-call name resolution for display (senpi#2064)
+
+### What changed
+
+- `packages/coding-agent/src/core/agent-session.ts`: public `resolveToolCallName(requested)` returns the tool a call named `requested` runs, by the same `resolveToolNameAlias` rule over `_callableToolNames` that `resolveUnknownToolCall` uses, without activating anything; unresolved names come back unchanged.
+
+### Why
+
+- The TUI builds a tool card from the streamed assistant `toolCall.name` before execution starts. It needs the agent's own answer to render a gateway-namespaced or recased call as the resolved tool from its first frame.
+
+### Why an extension could not handle it
+
+- The callable-name set (active, lazily activatable, and `tool_search` catalog names) is private session state.
+
+### Expected merge conflict zones
+
+- LOW: one method after `getToolDefinition` in `agent-session.ts`.
+
 ## 2026-09-23 - Settings overrides survive saves and reloads (senpi#2052)
 
 ### What changed
