@@ -3116,6 +3116,15 @@ export class AgentSession {
 		return this._toolDefinitions.get(name)?.definition;
 	}
 
+	/**
+	 * The tool a call named `requested` runs, by the same rule the agent loop
+	 * applies (exact name, else the unique alias among callable tools), without
+	 * activating anything. Returns `requested` when nothing resolves.
+	 */
+	resolveToolCallName(requested: string): string {
+		return resolveToolNameAlias(requested, this._callableToolNames()) ?? requested;
+	}
+
 	async executeTool<TDetails = unknown>(
 		toolName: string,
 		params: unknown,

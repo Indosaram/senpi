@@ -11,6 +11,7 @@
 ### Fixed
 
 - Truncated `bash` output no longer ends with `[Showing lines … ; earlier output dropped]` in the TUI. The marker still reaches the model unchanged as a model-only text part, and `bash_output` treats its `[N earlier chars dropped]` notice the same way. ([#2063](https://github.com/code-yeongyu/senpi/issues/2063))
+- A tool call whose name senpi auto-corrects (a gateway-namespaced or recased name such as `mcp__<id>__Edit`) now looks like a direct call to the resolved tool: its card uses that tool's renderer live and on resume, and the `[auto-corrected]` notice reaches only the model. ([#2064](https://github.com/code-yeongyu/senpi/issues/2064))
 
 ### Removed
 

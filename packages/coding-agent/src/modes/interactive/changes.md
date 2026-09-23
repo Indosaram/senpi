@@ -1,3 +1,22 @@
+## 2026-09-23 - Render a resolved tool-call name as the resolved tool (senpi#2064)
+
+### What changed
+
+- `packages/coding-agent/src/modes/interactive/interactive-mode.ts`: `createToolExecutionComponent` maps the requested name through `session.resolveToolCallName` before choosing the renderer. Every card path (streaming tool call, `tool_execution_start`, late `tool_execution_end`, and `replayAssistantTools`) goes through it, so a `mcp__<id>__Read` call renders, groups and replays as `read`.
+- `packages/coding-agent/test/suite/regressions/issue-2064-tool-name-correction-invisible.test.ts` (new): a real session runs a faux `mcp__686f__Read` call; the start event names `read`, the tool result keeps the notice as model-only text, and both the live and replayed transcripts show `Read sample.ts` with no `mcp__686f__` or `auto-corrected` text, collapsed or expanded.
+
+### Why
+
+- The card used the requested name, which has no renderer: the user saw the raw JSON arguments under `mcp__686f__Edit` and the correction notice, even though the call ran as `edit`.
+
+### Why an extension could not handle it
+
+- Card construction and renderer choice are owned by the interactive transcript.
+
+### Expected merge conflict zones
+
+- LOW: the head of `createToolExecutionComponent`.
+
 ## 2026-09-23 - Keep skill and memory reads out of the exploration group (senpi#2060)
 
 ### What changed
