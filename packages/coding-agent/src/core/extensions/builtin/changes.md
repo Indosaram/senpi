@@ -18,6 +18,24 @@ The per-source counts are published on the internal event bus by other builtin e
 - LOW in `packages/coding-agent/src/core/extensions/builtin/hooks/index.ts` around the `agent_settled` handler and `runConfiguredNotification`.
 - LOW in `packages/coding-agent/CHANGELOG.md` under `## [Unreleased]`.
 
+## 2026-09-24 - Recommended ladder reordered, provider lanes ranked per rung (senpi#2074)
+
+### What changed
+
+- `packages/coding-agent/src/core/extensions/builtin/recommended-models/index.ts`: `RECOMMENDED_DEFAULT_MODELS` is now `claude-opus-5-5` medium, `claude-fable-5-1` xhigh, `kimi-k3` max, `gpt-6-astra` xhigh, `gpt-6-sol` medium, `glm-5.3` max. `gpt-5.6-sol` and `glm-5.2` are no longer recommendations (both stay selectable). Each entry carries a third element, the ranked provider lanes (Claude `anthropic-subscription, anthropic, anthropic-api, github-copilot, opencode`; Kimi `kimi-coding, kimi-for-coding, moonshotai, opencode-go`; GPT `chatgpt-subscription, openai, github-copilot, opencode`; GLM `zai-coding-plan, opencode-go`), and `findAvailableRecommendation` picks the highest-ranked provider among the models whose canonical id matches. A shipped rung is served only by its ranked lanes; a `settings.recommendedModels` id outside the table has no ranking and any provider may serve it.
+
+### Why
+
+The product default is Claude first, then Kimi, then GPT, then GLM, and a machine holding both an Anthropic API key and the Claude subscription must land on the subscription lane rather than on whichever provider the registry happened to list first. Gateway aggregators (opengateway, openrouter, vercel-ai-gateway) and other resellers must never be pulled in by the default ladder; restricting a rung to its ranked lanes guarantees that, and tests pin both the gateway and the unranked-reseller case.
+
+### Why an extension could not handle it
+
+The shipped priority list is the binary default every session gets without a `settings.recommendedModels` override.
+
+### Expected merge conflict zones
+
+- MEDIUM in `packages/coding-agent/src/core/extensions/builtin/recommended-models/index.ts` around `RECOMMENDED_DEFAULT_MODELS` and `findAvailableRecommendation`: the entries are now 3-tuples.
+
 ## 2026-09-22 - Claude Opus 5.5 becomes the recommended Opus
 
 ### What changed
