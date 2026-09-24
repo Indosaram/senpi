@@ -1,22 +1,3 @@
-## 2026-09-23 - Report the session busy to extensions during settlement while a wake source is live
-
-### What changed
-
-- `packages/coding-agent/src/core/agent-session.ts`: `_emitAgentSettled` records `this._wakeSources.hasActive` into `_settlingWithBackgroundWork` before the `agent_settled` extension dispatch and clears it in the existing `finally`; the extension context's `isIdle` becomes `this.isIdle && !this._settlingWithBackgroundWork`. Outside that delivery window it is unchanged, so prompt-submit, ask-user, and idle-timer readers are unaffected.
-
-### Why
-
-- Agent-state extensions (Ferryx, herdr, orca) gate their own `idle` report on `ctx.isIdle()` during `agent_settled`. A turn that handed work to a terminal monitor, background task, DAG run, or loop-guard hold reported idle anyway, so the host treated the turn as finished and announced completion while background work was still running. The session's own `isIdle` stays exactly what it was: only what extensions are told during settlement changes.
-
-### Why an extension could not handle it
-
-- An extension cannot observe another extension's wake sources: `wake_source_state` is published on the session bus and the only reader is `WakeSourceTracker`. The agent-state extensions in question are third-party files rewritten by their own host, and they gate on the one API the session owns.
-
-### Expected merge conflict zones
-
-- LOW: the `_settlementEpoch` / `agent_settledDelivery.begin` head of `_emitAgentSettled` and its `finally` body.
-- LOW: the `isIdle:` entry of the extension context action block built in `bindExtensions`.
-
 ## 2026-09-23 - Streaming tool-call events name the tool a call resolves to (senpi#2068)
 
 ### What changed

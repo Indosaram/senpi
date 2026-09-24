@@ -938,16 +938,6 @@ export class AgentSession {
 	 * one would let the host evict a session still doing work.
 	 */
 	private readonly _wakeSources = new WakeSourceTracker();
-
-	/**
-	 * Set only while `agent_settled` is being delivered to extensions and only when an
-	 * extension-published wake source still reports live work. Agent-state extensions
-	 * (Ferryx, herdr, orca) gate their own `idle` report on `ctx.isIdle()`, so during
-	 * this delivery `isIdle()` must read as busy: a turn that handed work off to a
-	 * monitor, task, or DAG run is not finished, and reporting idle there tells the
-	 * host the turn ended when background work is still running.
-	 */
-	private _settlingWithBackgroundWork = false;
 	private _unsubscribeWakeSources: (() => void) | undefined;
 	private _overflowRecoveryAttempted = false;
 	private _autoCompactionSessionOverride: boolean | undefined;
@@ -1893,7 +1883,6 @@ export class AgentSession {
 		let deferredTurnClaims: DeferredTurnClaim[] = [];
 		this._agentSettledDelivery.begin(this._userAbortGeneration);
 		const settlementEpoch = ++this._settlementEpoch;
-		this._settlingWithBackgroundWork = this._wakeSources.hasActive;
 		try {
 			await this._extensionRunner.emit({ type: "agent_settled" });
 			this._emit({ type: "agent_settled" });
@@ -1902,7 +1891,6 @@ export class AgentSession {
 				this._userAbortGeneration,
 			));
 		} finally {
-			this._settlingWithBackgroundWork = false;
 			this._agentSettledDelivery.cancel();
 			this._abortProvenance.closeAgentEndBoundary();
 			this._resolveIdleWaitIfIdle();
@@ -7615,10 +7603,7 @@ export class AgentSession {
 				getServiceTier: () => this.serviceTier,
 				getEffectiveServiceTier: () => this.effectiveServiceTier,
 				getScopedModels: () => this._scopedModels,
-				// Scoped to the `agent_settled` delivery window: outside it this is plain
-				// `session.isIdle`, so prompt-submit, ask-user, and idle-timer readers are
-				// unaffected by a live wake source.
-				isIdle: () => this.isIdle && !this._settlingWithBackgroundWork,
+				isIdle: () => this.isIdle,
 				getAgentDir: () => this._agentDir,
 				isProjectTrusted: () => this.settingsManager.isProjectTrusted(),
 				getSignal: () => this._extensionEventSignal ?? this.agent.signal,
