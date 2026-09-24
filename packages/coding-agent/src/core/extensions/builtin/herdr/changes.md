@@ -1,5 +1,24 @@
 # Herdr builtin reporter changes
 
+## 2026-09-24 - Every wake source keeps the pane working (senpi#2077)
+
+### What changed
+
+- `packages/coding-agent/src/core/extensions/builtin/herdr/index.ts` subscribes to `wake_source_state` beside the terminal-monitor snapshot and folds each payload through the reducer.
+- `packages/coding-agent/src/core/extensions/builtin/herdr/herdr-state.ts` carries a `wakeSources` map, a `wake-source` event, and labels for the known sources in `selectHerdrReport`; `terminal-monitors` and `senpi-task` are already represented (the child count is the max of polled records and the published count) and `ask-user` belongs to the blocked state.
+
+### Why
+
+- A pane whose turn ended with a DAG run, a background bash session, or a detached eval cell live reported `idle` because only monitors and polled child-task records counted; the session-wide activity contract (`wake_source_state`) already names all of them. The report stays event-driven, so the pane idles when the last source clears without another turn.
+
+### Why an extension could not handle it
+
+- `packages/coding-agent/src/core/extensions/builtin/herdr/index.ts` and `herdr-state.ts` ARE the reporter.
+
+### Expected merge conflict zones
+
+- LOW: one subscription in `session_start` and the `selectHerdrReport` body.
+
 ## 2026-09-14 - Wire the registered factory to the host context (senpi#1645)
 
 ### What changed

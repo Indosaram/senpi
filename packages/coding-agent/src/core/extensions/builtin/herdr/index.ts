@@ -3,7 +3,12 @@ import { createConnection, type Socket } from "node:net";
 import { join, win32 } from "node:path";
 import { debuglog } from "node:util";
 import type { ExtensionAPI, ExtensionContext } from "../../types.ts";
-import { isTerminalMonitorStateEvent, TERMINAL_MONITOR_STATE_EVENT } from "../monitor-state-event.ts";
+import {
+	isTerminalMonitorStateEvent,
+	isWakeSourceStateEvent,
+	TERMINAL_MONITOR_STATE_EVENT,
+	WAKE_SOURCE_STATE_EVENT,
+} from "../monitor-state-event.ts";
 import { HerdrClient, type HerdrMethod } from "./herdr-client.ts";
 import { initialHerdrState, isHerdrBlockedEvent, reduceHerdrState, selectHerdrReport } from "./herdr-state.ts";
 
@@ -111,6 +116,13 @@ export function createHerdrExtension(deps: HerdrDependencies) {
 				pi.events.on(TERMINAL_MONITOR_STATE_EVENT, (data) => {
 					if (stopped || !isTerminalMonitorStateEvent(data)) return;
 					state = reduceHerdrState(state, { type: "monitors", count: data.activeCount });
+					return publish();
+				}),
+			);
+			subscriptions.push(
+				pi.events.on(WAKE_SOURCE_STATE_EVENT, (data) => {
+					if (stopped || !isWakeSourceStateEvent(data)) return;
+					state = reduceHerdrState(state, { type: "wake-source", source: data.source, count: data.activeCount });
 					return publish();
 				}),
 			);

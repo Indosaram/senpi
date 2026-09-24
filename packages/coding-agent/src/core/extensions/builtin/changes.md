@@ -1,22 +1,28 @@
-## 2026-09-23 - turn-settled Notification while background work is still active
+## 2026-09-24 - Stop waits for background work that will wake the session (senpi#2077)
 
 ### What changed
 
-- `packages/coding-agent/src/core/extensions/builtin/hooks/index.ts`: the hooks builtin mirrors live `wake_source_state` counts off `pi.events` and, on `agent_settled` with at least one source still active, dispatches a `Notification` hook input of `kind: "turn-settled"` through the same config, trust, and dispatch path the ask-user notifications already use. The `ask-user` source is ignored.
-- `packages/coding-agent/test/suite/hooks-turn-settled-notification.test.ts`: real-runtime coverage for the dispatch, the no-source silence, and the all-sources-cleared silence.
+- `packages/coding-agent/src/core/extensions/builtin/hooks/stop-lifecycle.ts` (new): owns the `Stop` dispatch that used to live in the `agent_end` handler of `hooks/index.ts`. It mirrors live `wake_source_state` counts off `pi.events` (every source except `ask-user`). An `agent_end` with a live source parks the built Stop input instead of dispatching it; a later `agent_start` drops the parked Stop (that turn's own end reports); when the live set drains to zero while the session is idle, a `STOP_DRAIN_GRACE_MS` (2 s, unref) timer dispatches the parked Stop unless a turn started or a message was queued in the meantime. `session_shutdown` drops everything. The Stop reentry tracker moved with it; `hooks/index.ts` calls `registerStopLifecycle` and `resetTurn()` on real user input.
+- `packages/coding-agent/src/core/extensions/builtin/herdr/herdr-state.ts` / `herdr/index.ts`: the reporter subscribes to `wake_source_state` and folds every source into the state. `selectHerdrReport` reports `working` while any source is live and labels each one (`terminal-background-sessions`, `senpi-codemode`, `omo-dag`, `loop-guard-hard-stop` have friendly names; unknown sources render as `<count> <source>`); `terminal-monitors` and `senpi-task` are not relabelled because the monitor snapshot and the child-task count already carry them (the child count is the max of the polled records and the published count), and `ask-user` is left to the blocked state.
+- `packages/coding-agent/test/suite/hooks-stop-background-work.test.ts` (new, real hooks.json + trust + child process): Stop held while a source is live and dispatched once on drain (fake `setTimeout` only around the drain, completion observed through the `entry_appended` stop-state entry); Stop at turn end when only `ask-user` is live; the wake turn's `agent_start` cancels the drain timer and that turn reports exactly one Stop; a wake turn that ends with the work still live keeps Stop held. `hooks-builtin-extension.test.ts` pins the new `agent_start` / `session_shutdown` registrations.
+- `packages/coding-agent/test/suite/herdr-reporter-harness.ts` (extracted from `herdr-reporter.test.ts`, unchanged behavior) and `herdr-reporter-wake-sources.test.ts` (new): working through settlement with a live DAG run and idle on clear; stable multi-source message without double counting; ask-user ignored; malformed and repeated payloads ignored.
+- `packages/coding-agent/test/suite/regressions/settled-idle-with-background-wake-source.test.ts`: pins that `ctx.isIdle()` still reads `true` at `agent_settled` while a wake source is live.
 
 ### Why
 
-Background work that outlives its turn - a monitor, a task, a DAG run - only announces itself when that work later wakes the session, so a user who walks away after a turn ends has no signal that anything is still running. The existing `Notification` kinds all describe an interactive wait, which is not what happened. Gating on a live wake source keeps an ordinary turn ending exactly as quiet as it is today. `ask-user` is skipped because it already notifies through `ask-user-asked` and keeps the question on screen; counting it would double-notify.
+A user with a Stop-hook notifier, or many herdr panes, was told "the agent stopped" at every turn end, including turns that had just handed the session to a subagent, a DAG run, or a monitor - and on arrival there was nothing to do. `Stop` now means the session actually stopped. The drain timer exists because completion handlers publish their zero count and wake the session in the same tick in either order; without the grace the drain would fire Stop a moment before the wake turn fires it again. `ask-user` is the one source that means the user's turn, so it does not hold Stop, and the herdr reporter already shows it as `blocked`.
+
+Two earlier shapes of this change were dropped: a `Notification` of `kind: "turn-settled"` fired at settlement while work was live added a ping at exactly the moment the user asked for silence and reached every bare `Notification` hook; and reporting `ctx.isIdle()` as false during `agent_settled` while a source was live postponed `config-reload`'s pending-reload flush and the `loop` builtin's deferred tick drain (both gate on `ctx.isIdle()` in their `agent_settled` handlers) for as long as any monitor stayed armed.
 
 ### Why an extension could not handle it
 
-The per-source counts are published on the internal event bus by other builtin extensions, and the `Notification` wire input is built inside the builtin that owns hook config, trust, and dispatch. An external extension sees neither the counts nor the configured handler list.
+The Stop dispatch, its trust resolution and its reentry tracker are inside the hooks builtin, and the herdr reporter is the builtin that owns the pane's lifecycle report. Both already run in-process next to the bus the wake sources publish on; no core API changed.
 
 ### Expected merge conflict zones
 
-- LOW in `packages/coding-agent/src/core/extensions/builtin/hooks/index.ts` around the `agent_settled` handler and `runConfiguredNotification`.
-- LOW in `packages/coding-agent/CHANGELOG.md` under `## [Unreleased]`.
+- LOW in `packages/coding-agent/src/core/extensions/builtin/hooks/index.ts`: the removed `agent_end` block and the `registerStopLifecycle` / `resetTurn` wiring.
+- LOW in `packages/coding-agent/src/core/extensions/builtin/herdr/index.ts` (one more subscription in `session_start`) and `herdr-state.ts` (new event variant, `selectHerdrReport` labels).
+- LOW in `packages/coding-agent/CHANGELOG.md` under `## [Unreleased]` -> `### Changed`.
 
 ## 2026-09-24 - Recommended ladder reordered, provider lanes ranked per rung (senpi#2074)
 

@@ -1,150 +1,22 @@
-import { EventEmitter, once } from "node:events";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { createConnection, createServer, Socket } from "node:net";
-import { tmpdir } from "node:os";
+import { once } from "node:events";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { HerdrClient, herdrSocketTarget } from "../../src/core/extensions/builtin/herdr/herdr-client.ts";
 import { initialHerdrState, reduceHerdrState } from "../../src/core/extensions/builtin/herdr/herdr-state.ts";
-import { createHerdrExtension, type HerdrDependencies } from "../../src/core/extensions/builtin/herdr/index.ts";
-import type { ExtensionAPI, ExtensionContext } from "../../src/core/extensions/types.ts";
-
-interface Request {
-	id: string;
-	method: string;
-	params: { seq: number; source: string; pane_id: string; [key: string]: unknown };
-}
-type Handler = (event: unknown, ctx: ExtensionContext) => unknown;
-
-function scriptedTransport(reply?: (socket: Socket, request: Request, attempt: number) => void) {
-	const requests: Request[] = [];
-	const sockets: Socket[] = [];
-	const written = new EventEmitter();
-	const connect = vi.fn(() => {
-		const socket = new Socket();
-		sockets.push(socket);
-		vi.spyOn(socket, "write").mockImplementation((data) => {
-			const request: Request = JSON.parse(String(data));
-			requests.push(request);
-			written.emit("request", request);
-			reply?.(socket, request, sockets.length);
-			return true;
-		});
-		queueMicrotask(() => socket.emit("connect"));
-		return socket;
-	});
-	return { requests, sockets, written, connect };
-}
-
-function acknowledge(socket: Socket, request: Request) {
-	socket.emit("data", Buffer.from(`${JSON.stringify({ id: request.id, result: {} })}\n`));
-}
-const cleanups: Array<() => Promise<void> | void> = [];
-
-async function fixture(overrides: Partial<HerdrDependencies> = {}) {
-	const dir = mkdtempSync(join(tmpdir(), "herdr-reporter-"));
-	const path =
-		process.platform === "win32" ? `\\\\.\\pipe\\herdr-reporter-${dir.split(/[\\/]/).pop()}` : join(dir, "sock");
-	const requests: Request[] = [];
-	const received = new EventEmitter();
-	const sockets = new Set<Socket>();
-	const server = createServer((socket) => {
-		sockets.add(socket);
-		socket.on("close", () => sockets.delete(socket));
-		let buffer = "";
-		socket.on("data", (chunk) => {
-			buffer += chunk.toString();
-			const end = buffer.indexOf("\n");
-			if (end < 0) return;
-			const request: Request = JSON.parse(buffer.slice(0, end));
-			requests.push(request);
-			socket.end(`${JSON.stringify({ id: request.id, result: {} })}\n`);
-			received.emit("request", request);
-		});
-	});
-	const listening = once(server, "listening", { signal: AbortSignal.timeout(5000) });
-	server.listen(path);
-	await listening;
-	vi.stubEnv("HERDR_ENV", "1");
-	vi.stubEnv("HERDR_SOCKET_PATH", path);
-	vi.stubEnv("HERDR_PANE_ID", "pane-test");
-	const lifecycle = new Map<string, Handler>();
-	const events = new Map<string, (data: unknown) => unknown>();
-	const debug = vi.fn();
-	const connect = vi.fn((target: string) => createConnection(target));
-	const deps: HerdrDependencies = {
-		getLoadedExtensionPaths: () => [],
-		readHeader: () => "",
-		now: () => 1000,
-		connect,
-		debug,
-		...overrides,
-	};
-	createHerdrExtension(deps)({
-		on: ((name: string, handler: Handler) => {
-			lifecycle.set(name, handler);
-		}) as ExtensionAPI["on"],
-		events: {
-			on: (name, handler) => {
-				events.set(name, handler);
-				return () => {
-					events.delete(name);
-				};
-			},
-			emit: (name, data) => {
-				events.get(name)?.(data);
-			},
-		},
-	});
-	let idle = true;
-	let title: string | undefined = "Reporter QA";
-	const ctx = {
-		mode: "tui",
-		cwd: dir,
-		isIdle: () => idle,
-		sessionManager: {
-			getSessionId: () => "root-session",
-			getSessionFile: () => "/sessions/root.jsonl",
-			getSessionName: () => title,
-		},
-	} as ExtensionContext;
-	const emit = async (type: string, extra: Record<string, unknown> = {}, context = ctx) => {
-		await lifecycle.get(type)?.({ type, ...extra }, context);
-	};
-	const bus = async (name: string, data: unknown) => {
-		await events.get(name)?.(data);
-	};
-	const start = () => emit("session_start", { reason: "startup" });
-	cleanups.push(async () => {
-		await emit("session_shutdown", { reason: "reload" });
-		for (const socket of sockets) socket.destroy();
-		await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
-		rmSync(dir, { recursive: true, force: true });
-	});
-	return {
-		dir,
-		requests,
-		received,
-		connect,
-		debug,
-		ctx,
-		emit,
-		bus,
-		start,
-		setIdle: (value: boolean) => {
-			idle = value;
-		},
-		setTitle: (value: string | undefined) => {
-			title = value;
-		},
-	};
-}
+import type { ExtensionContext } from "../../src/core/extensions/types.ts";
+import {
+	acknowledge,
+	cleanupHerdrReporterFixtures,
+	herdrReporterFixture,
+	scriptedTransport,
+} from "./herdr-reporter-harness.ts";
 
 beforeEach(() => {
 	vi.useRealTimers();
 });
 afterEach(async () => {
-	for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
+	await cleanupHerdrReporterFixtures();
 	vi.useRealTimers();
 	vi.restoreAllMocks();
 	vi.unstubAllEnvs();
@@ -152,7 +24,7 @@ afterEach(async () => {
 
 describe("herdr lifecycle reporter (senpi#1645)", () => {
 	it("sends the exact ordered lifecycle transcript over NDJSON", async () => {
-		const f = await fixture();
+		const f = await herdrReporterFixture();
 		await f.start();
 		expect(f.requests.map((r) => r.method)).toEqual([
 			"pane.report_metadata",
@@ -191,7 +63,7 @@ describe("herdr lifecycle reporter (senpi#1645)", () => {
 	it.each(["reload", "new", "resume", "fork"])(
 		"silences the old runtime on %s without releasing the pane",
 		async (reason) => {
-			const f = await fixture();
+			const f = await herdrReporterFixture();
 			await f.start();
 			expect(f.requests).toHaveLength(3);
 			await f.emit("session_shutdown", { reason });
@@ -203,7 +75,7 @@ describe("herdr lifecycle reporter (senpi#1645)", () => {
 	);
 
 	it.each(["HERDR_ENV", "HERDR_SOCKET_PATH", "HERDR_PANE_ID"])("never connects without %s", async (name) => {
-		const f = await fixture();
+		const f = await herdrReporterFixture();
 		vi.stubEnv(name, undefined);
 		await f.start();
 		await f.emit("agent_start");
@@ -211,7 +83,7 @@ describe("herdr lifecycle reporter (senpi#1645)", () => {
 	});
 
 	it.each(["rpc", "print", "json"])("never reports in %s mode", async (mode) => {
-		const f = await fixture();
+		const f = await herdrReporterFixture();
 		f.ctx.mode = mode as ExtensionContext["mode"];
 		await f.start();
 		await f.emit("agent_start");
@@ -219,7 +91,7 @@ describe("herdr lifecycle reporter (senpi#1645)", () => {
 	});
 
 	it("defers once to loaded user reporters, including Windows paths", async () => {
-		const f = await fixture({
+		const f = await herdrReporterFixture({
 			getLoadedExtensionPaths: () => ["C:\\extensions\\herdr-omo-activity.ts"],
 			readHeader: () => "// user reporter",
 		});
@@ -232,7 +104,7 @@ describe("herdr lifecycle reporter (senpi#1645)", () => {
 
 	it("coexists with the managed integration and ignores unrelated files", async () => {
 		const readHeader = vi.fn(() => "// installed by herdr\n// HERDR_INTEGRATION_ID=pi");
-		const f = await fixture({
+		const f = await herdrReporterFixture({
 			getLoadedExtensionPaths: () => ["/x/herdr-agent-state.ts", "/x/unrelated.ts"],
 			readHeader,
 		});
@@ -242,7 +114,7 @@ describe("herdr lifecycle reporter (senpi#1645)", () => {
 	});
 
 	it("does not treat a managed marker after the first 400 bytes as a managed header", async () => {
-		const f = await fixture({
+		const f = await herdrReporterFixture({
 			getLoadedExtensionPaths: () => ["/x/herdr-user.mjs"],
 			readHeader: () => `${" ".repeat(400)}HERDR_INTEGRATION_ID=pi`,
 		});
@@ -252,7 +124,7 @@ describe("herdr lifecycle reporter (senpi#1645)", () => {
 	});
 
 	it("binds lifecycle events to the first TUI session only", async () => {
-		const f = await fixture();
+		const f = await herdrReporterFixture();
 		await f.start();
 		const child = {
 			...f.ctx,
@@ -267,7 +139,7 @@ describe("herdr lifecycle reporter (senpi#1645)", () => {
 	});
 
 	it("retains FIFO blocked labels and deduplicates both arrivals and settlements", async () => {
-		const f = await fixture();
+		const f = await herdrReporterFixture();
 		await f.start();
 		await f.bus("herdr:blocked", { active: true, id: "one", label: "First" });
 		await f.bus("herdr:blocked", { active: true, id: "one", label: "Duplicate" });
@@ -286,7 +158,7 @@ describe("herdr lifecycle reporter (senpi#1645)", () => {
 	});
 
 	it("uses live idle state, monitor snapshots and child records with a four-second unref poll", async () => {
-		const f = await fixture();
+		const f = await herdrReporterFixture();
 		const tasks = join(f.dir, ".omo", "senpi-task", "tasks");
 		mkdirSync(tasks, { recursive: true });
 		writeFileSync(
@@ -322,7 +194,7 @@ describe("herdr lifecycle reporter (senpi#1645)", () => {
 	});
 
 	it("reports title changes and clearing without duplicating lifecycle state", async () => {
-		const f = await fixture();
+		const f = await herdrReporterFixture();
 		await f.start();
 		f.setTitle("Renamed");
 		await f.emit("session_info_changed", { name: "Renamed" });
@@ -337,7 +209,7 @@ describe("herdr lifecycle reporter (senpi#1645)", () => {
 	});
 
 	it("ignores malformed bus payloads", async () => {
-		const f = await fixture();
+		const f = await herdrReporterFixture();
 		await f.start();
 		for (const data of [null, {}, { active: "yes", id: "x" }, { active: true, label: "missing id" }])
 			await f.bus("herdr:blocked", data);
@@ -347,7 +219,7 @@ describe("herdr lifecycle reporter (senpi#1645)", () => {
 
 	it("never lets a queued report reclaim a released pane", async () => {
 		const transport = scriptedTransport(acknowledge);
-		const f = await fixture({ connect: transport.connect });
+		const f = await herdrReporterFixture({ connect: transport.connect });
 		await f.start();
 		const working = f.emit("agent_start");
 		const blocked = f.bus("herdr:blocked", { active: true, id: "q", label: "Question" });
@@ -370,7 +242,7 @@ describe("herdr lifecycle reporter (senpi#1645)", () => {
 			if (failing) socket.emit("error", new Error("offline"));
 			else acknowledge(socket, request);
 		});
-		const f = await fixture({ connect: transport.connect });
+		const f = await herdrReporterFixture({ connect: transport.connect });
 		await f.start();
 		expect(f.debug).toHaveBeenCalledTimes(3);
 		failing = false;
