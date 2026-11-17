@@ -7,6 +7,7 @@ import {
 	recordTurnText,
 	trigramJaccard,
 } from "../../src/core/extensions/builtin/ttsr/detectors/repetitive-turns.ts";
+import { RepetitiveTurnsLane } from "../../src/core/extensions/builtin/ttsr/repetitive-turns-lane.ts";
 
 const SESSION_STATUS_VARIANTS = [
 	"I read this as continue supervising the portable-PTY matrix; it has started cleanly with 1 check green and 8 pending.",
@@ -159,5 +160,81 @@ describe("repetitive-turns detector", () => {
 		expect(recordTurnText(state, SESSION_STATUS_VARIANTS[0])).toBeNull();
 		expect(recordTurnText(state, SESSION_STATUS_VARIANTS[1])).toBeNull();
 		expect(recordTurnText(state, SESSION_STATUS_VARIANTS[2])).not.toBeNull();
+	});
+});
+
+describe("repetitive-turns stream abort", () => {
+	// The lane cuts a turn mid-flight. It must wait for the same streak the batch
+	// detector waits for, and the turn it cuts must count toward that streak.
+	const FIFTH_VARIANT =
+		"I read this as continue supervising the portable-PTY matrix; it has started cleanly with 5 checks green and 4 pending.";
+
+	it("stays silent on the second similar turn", () => {
+		// given: exactly one completed turn, so the batch rule has not reached its streak
+		const lane = new RepetitiveTurnsLane();
+		lane.recordCompletedTurn(SESSION_STATUS_VARIANTS[0]);
+		expect(lane.armed).toBe(false);
+
+		// when: the next turn streams the same near-duplicate content
+		const aborted = lane.observeTextDelta(SESSION_STATUS_VARIANTS[1], true);
+
+		// then: the rule promises three turns, so two are not enough to cut the stream
+		expect(aborted).toBe(false);
+		expect(lane.armed).toBe(false);
+	});
+
+	it("aborts on the turn that completes the batch streak", () => {
+		// given: two completed near-duplicate turns - one similar pair recorded
+		const lane = new RepetitiveTurnsLane();
+		lane.recordCompletedTurn(SESSION_STATUS_VARIANTS[0]);
+		lane.recordCompletedTurn(SESSION_STATUS_VARIANTS[1]);
+		expect(lane.armed).toBe(false);
+
+		// when: the third similar turn streams
+		const aborted = lane.observeTextDelta(SESSION_STATUS_VARIANTS[2], true);
+
+		// then: this is the turn the batch detector also fires on
+		expect(aborted).toBe(true);
+		expect(lane.armed).toBe(true);
+	});
+
+	it("agrees with the batch detector on which turn fires", () => {
+		const batch = new RepetitiveTurnsLane();
+		batch.recordCompletedTurn(SESSION_STATUS_VARIANTS[0]);
+		batch.recordCompletedTurn(SESSION_STATUS_VARIANTS[1]);
+		batch.recordCompletedTurn(SESSION_STATUS_VARIANTS[2]);
+
+		const stream = new RepetitiveTurnsLane();
+		stream.recordCompletedTurn(SESSION_STATUS_VARIANTS[0]);
+		stream.recordCompletedTurn(SESSION_STATUS_VARIANTS[1]);
+		const streamAbortedOnThird = stream.observeTextDelta(SESSION_STATUS_VARIANTS[2], true);
+
+		expect(streamAbortedOnThird).toBe(batch.armed);
+	});
+
+	it("stays silent once the rule is latched", () => {
+		const lane = new RepetitiveTurnsLane();
+		lane.recordCompletedTurn(SESSION_STATUS_VARIANTS[0]);
+		lane.recordCompletedTurn(SESSION_STATUS_VARIANTS[1]);
+		expect(lane.observeTextDelta(SESSION_STATUS_VARIANTS[2], true)).toBe(true);
+		lane.commitArmedTurn(SESSION_STATUS_VARIANTS[2]);
+		// a completed similar turn clears the recovery hold while the rule stays latched
+		lane.recordCompletedTurn(SESSION_STATUS_VARIANTS[3]);
+
+		expect(lane.observeTextDelta(FIFTH_VARIANT, true)).toBe(false);
+	});
+
+	it("does not re-arm on the turn after the one it aborted", () => {
+		const lane = new RepetitiveTurnsLane();
+		lane.recordCompletedTurn(SESSION_STATUS_VARIANTS[0]);
+		lane.recordCompletedTurn(SESSION_STATUS_VARIANTS[1]);
+		expect(lane.observeTextDelta(SESSION_STATUS_VARIANTS[2], true)).toBe(true);
+		lane.commitArmedTurn(SESSION_STATUS_VARIANTS[2]);
+
+		// the aborted turn counts, so the fourth similar turn is already past the streak
+		lane.resetTurn();
+		lane.recordCompletedTurn(SESSION_STATUS_VARIANTS[3]);
+
+		expect(lane.armed).toBe(false);
 	});
 });

@@ -4,6 +4,7 @@ import {
 	normalizeTurnText,
 	REPETITIVE_TURNS_MIN_NORMALIZED_CHARS,
 	REPETITIVE_TURNS_RULE_NAME,
+	REPETITIVE_TURNS_STREAK_LENGTH,
 	type RepetitiveTurnsState,
 	recordTurnText,
 } from "./detectors/repetitive-turns.ts";
@@ -80,8 +81,26 @@ export class RepetitiveTurnsLane {
 		return this.#armed;
 	}
 
+	/**
+	 * The streaming abort cuts a turn mid-flight, so it must only fire on the turn that
+	 * completes the streak the batch detector requires. `streak` counts the similar pairs
+	 * already recorded among completed turns and the turn being streamed is the next one,
+	 * so arming is legal only when `streak + 1` reaches the same bound `recordTurnText` uses.
+	 * Without this, the second similar turn aborted while the wording promised three.
+	 */
+	#streamStreakReached(): boolean {
+		return !this.#state.latched && this.#state.streak + 1 >= REPETITIVE_TURNS_STREAK_LENGTH - 1;
+	}
+
 	observeTextDelta(delta: string, canArm: boolean): boolean {
-		if (this.#enabled && !this.#armed && !this.#recovering && canArm && this.#lastCompletedTurnText !== null) {
+		if (
+			this.#enabled &&
+			!this.#armed &&
+			!this.#recovering &&
+			canArm &&
+			this.#streamStreakReached() &&
+			this.#lastCompletedTurnText !== null
+		) {
 			const candidate = normalizeTurnText(this.#currentTurnText + delta);
 			if (
 				candidate.length >= REPETITIVE_TURNS_MIN_NORMALIZED_CHARS &&
@@ -99,6 +118,11 @@ export class RepetitiveTurnsLane {
 		this.#recovering = true;
 		if (turnText !== null) {
 			this.#lastCompletedTurnText = normalizeTurnText(turnText);
+			// The aborted turn still happened: advancing the detector state here is what latches
+			// the rule, so one streak cycle aborts at most once instead of re-arming on every
+			// following similar turn. The verdict is discarded - the nudge for this turn is
+			// already being built by the caller.
+			recordTurnText(this.#state, turnText);
 		}
 	}
 
